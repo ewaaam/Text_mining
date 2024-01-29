@@ -124,7 +124,7 @@ d <- data.frame(tf=v)
 #1 feature selection --- filtering by tf-idf score
 tfidf<-filter_words(big_tfidf, 
                     min=quantile(d$tf, 0.995) #different values of min generate different results
-                    ) #so its good to experiment with them - e.g. min=1 gives good results
+) #so its good to experiment with them - e.g. min=1 gives good results
 
 #MODELING
 #---changing matrix to data frame
