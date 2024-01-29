@@ -1,0 +1,283 @@
+---
+title: "Understanding ECB communication through Topic Modelling and Sentiment Analysis"
+output: html_document
+date: "2024-01-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+library(tidyverse)
+library(tidytext)
+library(topicmodels)
+library(tm)
+library(SnowballC)
+library(rminer)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(textclean)
+library(tm)
+library(SnowballC)
+library(textmineR)
+library(textcat)
+library(quanteda)
+```
+
+# Chapter I. Introduction
+
+::: {style="text-align: justify;"}
+ European Central Bank communication influences the expectations regarding the future condition of the economy in the European Union and its member states. Hence, understanding the patterns hidden behind the ECB board members' speeches is a vital issue not only for policymakers and investors but also for the broader public. This project aims to reveal what are the key topics discussed by the ECB, how they change across time and what is their emotional tone.
+
+ Szyszko et al. (2022) examined the effect on communication of the central banks in selected European countries using (among others) the LDA (Latent Dirichlet allocation) technique. They found that the tone of communication of the central bank affects consumer inflation expectations. The LDA algorithm has been used also by Priola et al. (2022) to uncover the topics of the speeches delivered by selected central banks between 2000 and 2021 and then a topic-specific sentiment index was constructed. It turned out that monetary policy, macroprudential policy, payments, and settlements were the most prominent contributors. Since the LDA algorithm is widely used in analyzing the communication of the central banks (Hansen and McMahon (2016), Tumala and Omotosho (2020)), it is be the main tool used in this research.
+
+ The structure of the project is as follows. Chapter I presents the dataset and data-cleaning process. Chapter II presents Topic Modeling and Sentiment Analysis. Firstly, the main topics covered by the ECB are revealed. Following that, the database is divided into four periods: pre-crisis (1997-2006), crisis (2008-2009), post-crisis (2009-2019) and covid-19 (2020-2023). It allows for a more detailed analysis of the topics covered in each period. Finally, sentiment analysis is used to detect how the emotional tone has been changing through the mentioned periods. Chapter III summarizes the results and the final part concludes.
+:::
+
+# Chapter II. Dataset
+
+::: {style="text-align: justify;"}
+The initail dataset consists of 1406 speeches of ECB board members delivered from 1997-02-07 to 2023-12-20.
+:::
+
+```{r}
+# loading the data
+speeches <- read.delim("all_ECB_speeches.csv", sep = "|")
+```
+
+::: {style="text-align: justify;"}
+ Before topic modeling, some data preprocessing was needed. All rows with missing observations were removed, words were converted to lowercase, white spaces were removed and contractions and elongations were replaced. Since the title, subtitle, date, and place of the speech were also included in its content, this information was removed from each speech. Some texts were not in English, so the language of the speeches was firstly detected and then non-English speeches (Spanish, Catalan, French, and German) were removed. 1261 observations were left. Some stopwords were dropped (they appeared frequently in each topic).
+:::
+
+```{r}
+speeches$contents <- gsub("  SPEECH  ", "", speeches$contents) # removing SPEECH word
+speeches <- speeches %>%
+  filter(!is.na(contents) & contents != "") # removing empty rows 
+
+for (i in 1:nrow(speeches)) {
+  speeches$contents[i] <- gsub(speeches$title[i], "", speeches$contents[i])
+} # removing the title from the content of the speech 
+
+for (i in 1:nrow(speeches)) {
+  speeches$contents[i] <- gsub(speeches$subtitle[i], "", speeches$contents[i])
+} # removing the subtitle from the content of the speech 
+
+speeches$contents <- gsub("\\b\\p{Lu}{1}[a-zA-Z\\s]+(?=,)", "", speeches$contents, perl = TRUE)# removing place of the speech
+
+speeches$contents <- gsub("\\b\\d{1,2}\\s+(January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4}\\b", "", speeches$contents) # removing dates from the contents table
+
+speeches$contents <- str_replace_all(as.character(speeches$contents), '[^a-zA-Z \']',' ')
+
+speeches <- speeches %>%
+  mutate_all(str_to_lower) %>%
+  mutate_all(replace_contraction) %>%
+  mutate_all(replace_word_elongation) %>%
+  mutate_all(str_squish) %>%
+  mutate_all(str_trim)
+
+speeches_lang <- textcat(speeches$contents,p=textcat::TC_char_profiles,method="CT", options=list()) # language detection 
+speeches_lang <- as.data.frame(speeches_lang)
+speeches_combined <- cbind(speeches, speeches_lang)
+
+speeches <- speeches_combined[speeches_combined$speeches_lang == 'english', ]
+
+speeches$contents <- sapply(speeches$contents, function(text) {
+  tokens <- tokens(text)
+  tokens <- tokens_remove(tokens, stopwords("en"))
+  tokens <- tokens_remove(tokens, stopwords("de"))
+  tokens <- tokens_remove(tokens, stopwords("es"))
+  tokens <- tokens_remove(tokens, c('financial', 'policy', 'euro', 'economic', 'area', 'monetary', 'market', 'markets', 'ecb', 'bank'))
+  return(paste(tokens, collapse = " "))
+})
+```
+
+# Chapter III. Modeling
+
+### Topic Modeling
+
+::: {style="text-align: justify;"}
+ LDA is a generative probabilistic model, where each document is treated as a mixture of topics occurring in the corpus, and each word is ascribed to a particular topic with some probability. After multiple iterations, the words with the highest probability of appearing in a particular topic can be displayed (source: lecture notes).
+:::
+
+```{r}
+top_terms_by_topic_LDA <- function(contents, # should be a columm from a dataframe
+                                   plot = T, # return a plot? TRUE by defult
+                                   number_of_topics = 6) # number of topics (4 by default)
+{    
+  # create a corpus (type of object expected by tm) and document term matrix
+  Corpus <- Corpus(VectorSource(contents)) # make a corpus object
+  DTM <- DocumentTermMatrix(Corpus) # get the count of words/document
+  
+  # remove any empty rows in our document term matrix (if there are any 
+  # we'll get an error when we try to run our LDA)
+  unique_indexes <- unique(DTM$i) # get the index of each unique value
+  DTM <- DTM[unique_indexes,] # get a subset of only those indexes
+  
+  # preform LDA & get the words/topic in a tidy text format
+  lda <- LDA(DTM, k = number_of_topics, control = list(seed = 1234))
+  topics <- tidy(lda, matrix = "beta")
+  
+  # get the top ten terms for each topic
+  top_terms <- topics  %>% # take the topics data frame and..
+    group_by(topic) %>% # treat each topic as a different group
+    top_n(10, beta) %>% # get the top 10 most informative words
+    ungroup() %>% # ungroup
+    arrange(topic, -beta) # arrange words in descending informativeness
+  
+  # if the user asks for a plot (TRUE by default)
+  if(plot == T){
+    # plot the top ten terms for each topic in order
+    top_terms %>% # take the top terms
+      mutate(term = reorder(term, beta)) %>% # sort terms by beta value 
+      ggplot(aes(term, beta, fill = factor(topic))) + # plot beta by theme
+      geom_col(show.legend = FALSE) + # as a bar plot
+      facet_wrap(~ topic, scales = "free") + # which each topic in a separate plot
+      labs(x = NULL, y = "Beta") + # no x label, change y label 
+      coord_flip() # turn bars sideways
+  }else{ 
+    # if the user does not request a plot
+    # return a list of sorted terms instead
+    return(top_terms)
+  }
+}
+```
+
+```{r}
+a<-top_terms_by_topic_LDA(contents = speeches$contents, plot = TRUE, number_of_topics = 6)
+a
+```
+
+::: {style="text-align: justify;"}
+Based on the generated top 10 words in each category, the topics emerging in the speeches are:
+
+1)  Financial stability 
+
+2)  Single  currency
+
+3)  Credits and liquidity 
+
+4)  Banking system
+
+5)  Monetary policy 
+
+6)  Inflation
+
+
+:::
+
+::: {style="text-align: justify;"}
+ For more detailed analysis, the database was divided into four periods: pre-crisis (259 speeches), crisis (205 speeches), post-crisis (568 speeches), and Covid-19 (227 speeches).
+:::
+
+```{r}
+speeches$date <- as.Date(speeches$date)
+
+pre_crisis_period <- c(as.Date("1997-01-01"), as.Date("2007-12-31"))
+crisis_period <- c(as.Date("2008-01-01"), as.Date("2009-12-31"))
+post_crisis_period <- c(as.Date("2010-01-01"), as.Date("2019-12-31"))
+covid_period <- c(as.Date("2020-01-01"), as.Date("2023-12-31"))
+
+# dividing speeches by periods
+pre_crisis_speeches_df <- filter(speeches, date >= pre_crisis_period[1] & date <= pre_crisis_period[2])
+crisis_speeches_df <- filter(speeches, date >= crisis_period[1] & date <= crisis_period[2])
+post_crisis_speeches_df <- filter(speeches, date >= post_crisis_period[1] & date <= post_crisis_period[2])
+covid_speeches_df <- filter(speeches, date >= covid_period[1] & date <= covid_period[2])
+```
+
+```{r}
+b<-top_terms_by_topic_LDA(contents = pre_crisis_speeches_df$contents, plot = TRUE, number_of_topics = 4)
+b
+```
+
+::: {style="text-align: justify;"}
+Topics before crisis:
+
+1)  Exchange rates and price stability
+
+2)  Inflation
+
+3)  Integration of banking systems
+
+4)  Singe currency
+:::
+
+```{r}
+c<-top_terms_by_topic_LDA(contents = crisis_speeches_df$contents, plot = TRUE, number_of_topics = 4)
+c
+```
+
+::: {style="text-align: justify;"}
+Topics during crisis:
+
+1)  Inflation
+
+2)  SEPA
+
+3)  Regulatory framework
+
+4)  Liquidity and credits
+:::
+
+```{r}
+d<-top_terms_by_topic_LDA(contents = post_crisis_speeches_df$contents, plot = TRUE, number_of_topics = 4)
+d
+```
+
+::: {style="text-align: justify;"}
+Topics :
+
+1)  Banking
+
+2)  Monetary policy
+
+3)  Financial crisis
+
+4)  Financial crisis
+:::
+
+```{r}
+e<-top_terms_by_topic_LDA(contents = covid_speeches_df$contents, plot = TRUE, number_of_topics = 4)
+e
+```
+
+::: {style="text-align: justify;"}
+Topics during (and after) COVID-19 pandemic:
+
+1)  Digital payments
+
+2)  Climate change
+
+3)  Inflation and energy prices
+
+4)  Pandemic
+:::
+
+### Summary
+
+::: {style="text-align: justify;"}
+ The analysis highlighted the ECB's varying emphasis on different topics across different periods. Before the crisis, key issues were related to price stability, exchange rates, and integration of the banking system. The crisis has triggered the intensification of speeches relating to the regulatory framework, liquidity, and credits. After that, the banking sector gained much more attention and the topic of the financial crisis was still prevalent. COVID-19 has significantly changed the covered subjects: digital payments, climate change, pandemic, and increasing energy prices.
+:::
+
+### Sentiment Analysis
+
+# Chapter IV. Results
+
+```{r}
+
+```
+
+# Conclusions
+
+# BIBLIOGRAPHY
+
+::: {style="text-align: justify;"}
+-   Hansen, S., & McMahon, M. (2016). Shocking language: Understanding the macroeconomic effects of central bank communication. Journal of International Economics, 99, S114-S133.
+
+-   Priola, M. P., Molino, A., & Tizzanini, G. (2021). The informative value of central banks talks: a topic model application to sentiment analysis.
+
+-   Szyszko, M., Rutkowska, A., & Kliber, A. (2022). Do words affect expectations? The effect of central banks communication on consumer inflation expectations. The Quarterly Review of Economics and Finance, 86, 221-229.
+
+-   Tumala, M. M., & Omotosho, B. S. (2019). A text mining analysis of central bank monetary policy communication in Nigeria. CBN Journal of Applied Statistics, 10(2).
+:::
