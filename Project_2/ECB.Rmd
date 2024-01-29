@@ -29,17 +29,17 @@ library(quanteda)
 # Chapter I. Introduction
 
 ::: {style="text-align: justify;"}
- European Central Bank communication influences the expectations regarding the future condition of the economy in the European Union and its member states. Hence, understanding the patterns hidden behind the ECB board members' speeches is a vital issue not only for policymakers and investors but also for the broader public. This project aims to reveal what are the key topics discussed by the ECB, how they change across time and what is their emotional tone.
+ European Central Bank communication influences the expectations regarding the future condition of the economy in the European Union and its member states. Hence, understanding the patterns hidden behind the ECB board members' speeches is a vital issue not only for policymakers and investors but also for the broader public. This project seeks to uncover the primary topics discussed by the ECB, how they change over time and what is their emotional tone.
 
- Szyszko et al. (2022) examined the effect on communication of the central banks in selected European countries using (among others) the LDA (Latent Dirichlet allocation) technique. They found that the tone of communication of the central bank affects consumer inflation expectations. The LDA algorithm has been used also by Priola et al. (2022) to uncover the topics of the speeches delivered by selected central banks between 2000 and 2021 and then a topic-specific sentiment index was constructed. It turned out that monetary policy, macroprudential policy, payments, and settlements were the most prominent contributors. Since the LDA algorithm is widely used in analyzing the communication of the central banks (Hansen and McMahon (2016), Tumala and Omotosho (2020)), it is be the main tool used in this research.
+ Szyszko et al. (2022) examined the effect on communication of the central banks in selected European countries employing various methodologies, including the LDA (Latent Dirichlet allocation) technique. They found that the tone of communication of the central bank affects consumer inflation expectations. The LDA algorithm has been used also by Priola et al. (2022) to uncover the topics of the speeches delivered by selected central banks between 2000 and 2021 and then a topic-specific sentiment index was constructed. It turned out that monetary policy, macroprudential policy, payments, and settlements were the most prominent contributors. Since the LDA algorithm is widely used in analyzing the communication of the central banks (as observed in works by Hansen and McMahon (2016), Tumala and Omotosho (2020)), it is be the main tool used in this research.
 
- The structure of the project is as follows. Chapter I presents the dataset and data-cleaning process. Chapter II presents Topic Modeling and Sentiment Analysis. Firstly, the main topics covered by the ECB are revealed. Following that, the database is divided into four periods: pre-crisis (1997-2006), crisis (2008-2009), post-crisis (2009-2019) and covid-19 (2020-2023). It allows for a more detailed analysis of the topics covered in each period. Finally, sentiment analysis is used to detect how the emotional tone has been changing through the mentioned periods. Chapter III summarizes the results and the final part concludes.
+ The structure of the project is as follows. Chapter I describes the dataset and data-cleaning process. Chapter II presents Topic Modeling and Sentiment Analysis. Firstly, the main topics covered by the ECB are revealed. Following that, the database is divided into four periods: pre-crisis (1997-2006), crisis (2008-2009), post-crisis (2009-2019) and covid-19 (2020-2023). It allows for a more detailed analysis of the topics covered in each period. Finally, sentiment analysis is used to detect how the emotional tone has been changing through the mentioned periods. Chapter III summarizes the results and the final part concludes.
 :::
 
 # Chapter II. Dataset
 
 ::: {style="text-align: justify;"}
-The initail dataset consists of 1406 speeches of ECB board members delivered from 1997-02-07 to 2023-12-20.
+The initial dataset consists of 1406 speeches of ECB board members delivered from 1997-02-07 to 2023-12-20.
 :::
 
 ```{r}
@@ -48,7 +48,7 @@ speeches <- read.delim("all_ECB_speeches.csv", sep = "|")
 ```
 
 ::: {style="text-align: justify;"}
- Before topic modeling, some data preprocessing was needed. All rows with missing observations were removed, words were converted to lowercase, white spaces were removed and contractions and elongations were replaced. Since the title, subtitle, date, and place of the speech were also included in its content, this information was removed from each speech. Some texts were not in English, so the language of the speeches was firstly detected and then non-English speeches (Spanish, Catalan, French, and German) were removed. 1261 observations were left. Some stopwords were dropped (they appeared frequently in each topic).
+ Before topic modeling, some data preprocessing was needed. All rows with missing observations were removed, words were converted to lowercase, white spaces were removed and contractions and elongations were replaced. Since the title, subtitle, date, and place of the speech were also included in speeches content, this information was removed from each speech. Some texts were not in English, so the language of the speeches was firstly detected and then non-English speeches (Spanish, Catalan, French, and German) were removed. 1261 observations were left. Some stopwords were dropped (they appeared frequently in each topic).
 :::
 
 ```{r}

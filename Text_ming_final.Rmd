@@ -259,7 +259,7 @@ dat.clean_b <- as.data.frame(dat.clean_b)
 ```
 
 ::: {style="text-align: justify;"}
- In order for the trained model to correctly predict the mood, variables generated from billboard dataset need to correspond to those from spotify data. Hence, the last step before modeling part was a unification of column names in both daatsets (from billborad and spotify) in order to generate predictions.
+ To ensure that the trained model correctly predicts the mood, variables generated from billboard dataset need to correspond to those from spotify. Hence, the unification of column names in both datasets was the last step before modeling.
 :::
 
 ```{r}
@@ -293,7 +293,7 @@ plot(im_2)
 *Source*: Own study
 
 ::: {style="text-align: justify;"}
- Since the dataset is imbalanced, the stratify approach was used, in spilling the data into training and testing samples (70%/30%).
+ Since the dataset is imbalanced, the stratify approach was used in spilling the data into training and testing samples (70%/30%).
 :::
 
 ```{r}
@@ -334,7 +334,7 @@ a
 ```
 
 ::: {style="text-align: justify;"}
- Out of all trained SVM models (with different kernel functions: linear, polynomial, radial, sigmoid), model with linear kernel yielded the best results. Nevertheless, the accuracy on the training set it around 60%, which is not a satisfactory outcoma e.
+ Out of all trained SVM models (with different kernel functions: linear, polynomial, radial, sigmoid), model with linear kernel yielded the best results. Nevertheless, the accuracy on the training set it around 60%, which is not a satisfactory outcome.
 :::
 
 #### Naive Bayers
@@ -373,7 +373,7 @@ c_t
 c
 ```
 
-KNN and Naive Bayers gave unsatisfactory results, the last trained model is Random Forest.
+KNN and Naive Bayers yelded unsatisfactory results. The last trained model is Random Forest.
 
 #### Random Forrest
 
@@ -404,7 +404,7 @@ results_summary <-t(results_summary)
 results_summary
 ```
 
-The best outcomes on the training set were obtained with the Random Forest. Balanced accuracy for each category is close to 70%. Although the model sufferers from overfitting, its relatively high accuracy allowed for further predictions.
+The Random Forest yielded the most favorable results on the testing set. Balanced accuracy for each category is close to 70%. Although the model sufferers from overfitting, its relatively high accuracy allowed for further predictions.
 
 # CHAPTER III. RESULTS
 
