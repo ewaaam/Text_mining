@@ -1,0 +1,446 @@
+---
+title: "Which type of song is the most popular: happy, sad or angry? (mood classification of song lyrics from Billboard Hot 100)"
+authors: Ewa Włodarczyk, Karolina Sierocka, Tymoteusz Mętrak 
+output: html_document
+date: "2024-01-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T)
+```
+
+```{r, warning=FALSE}
+set.seed(123)
+library(tidyverse)
+library(rminer)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(textclean)
+library(tm)
+library(SnowballC)
+library(textmineR)
+library(e1071)
+library(parsnip)
+library(rsample)
+library(rpart.plot)
+library(partykit)
+library(tidytext)
+library(gofastr)
+library(caret)
+library(lsa)
+library(imager)
+```
+
+# INTRODUCTION
+
+::: {style="text-align: justify;"}
+ Listening to music can influence our mood, which can then in turn impact our behavior. But what kind of music are we listening to? The sentiment analysis of popular songs' lyrics done by Napier and Shamir (2018) shows a significant increase in anger and sadness and a decrease in joy in the tone of popular music from 1951-2016. Still, in the same study, while analyzing tone expressed in lyrics, most popular genres, apart from rap, scored higher in joy than in sadness and anger. Additionally, as pointed out by Schellenberg and Von Scheve (2012) popular music has changed over the years to involve more mixed emotional cues.
+
+ The purpose of the project is to find out which type of music is the most popular: happy, sad or angry based on mood classification of song lyrics from the Billboard Hot 100. Our main assumption, taking into account the fact that most popular genres are: pop music, which mood is usually happy, and rap/hip-hop, which mood is rather angry, would be that most popular types of music have happy or angry lyrics. However, even looking at the title of the current (written on the 8th of November 2023) number 1 song from the Billboard Hot 100 - "Is it over now?", which clearly signals a sad tone, we can see that deciding which type of music is the most popular will pose a greater challenge.
+
+ The organization of the paper is as follows. The related work and background of the research is discussed in Chapter I, description of the data used is in Chapter II, proposed methodology is presented in Chapter III, discussion about the results, model evaluation and comparison is showed in Chapter IV, which is then followed by conclusion.
+:::
+
+# Chapter I. BACKGROUND
+
+::: {style="text-align: justify;"}
+ Recently, several studies have been concentrated on a lyric-based mood classification through natural language processing techniques. In most of them mood categories are derived from the Russell's (1980) circumplex model, which maps emotions across two dimensions: valence and arousal, as shown in Figure 1. In this study, we will also use Russel's model, but in a simplified version, classifying song lyrics into four mood categories: Happy, Sad, Angry and Relaxed. As there are more than two classes and each data point can only be assigned to one class this will be a multi-class classification.
+:::
+
+Fig. 1. Simplified Russel's circumplex emotion model.
+
+```{r, echo=FALSE}
+im = load.image("simplified_model.jpg")
+plot(im)
+```
+
+*Source*: Own study, based on: Russell J. (1980) A circumplex model of affect, Journal of Personality and Social Psychology, vol. 39, 1161--1178.
+
+::: {style="text-align: justify;"}
+ Mood classification is performed with varying success using different machine learning processes and algorithms. Akella and Moh (2019) achieved an accuracy of 71% using Convolutional Neural Network. Similarly, Abdillah, Asror and Wibowo (2020) created a Recurrent Neural Network, which can produce an accuracy of 91%. Siriket, Sa-ing and Khonthapagdee (2021) however, instead of using deep learning techniques, used a boosting algorithm with 89% accuracy. This proves that multi-class classification can be successfully performed using not only neural networks, but also simpler machine learning techniques, which will be used in this study.
+:::
+
+# CHAPTER II. DATASET
+
+::: {style="text-align: justify;"}
+ Two distinct datasets were used for this analysis. The first one is from Spotify and it contains data of around 10 thousand songs released from 1999 to 2019. Apart from lyrics, it also consists of important song features: energy and valance, which determine the mood label in accordance with Russel's model. For both traits, their values range from 0.0 to 1.0. However, songs are not evenly distributed across those variables as it is shown on Figure 2, making mood labeling much more complicated. We want to train our model on songs in which emotional states are clearly expressed, with enough examples of lyrics for each category. That's why we apply mood labels only to songs with attributes in the 1st or 3rd quartile.
+:::
+
+```{r}
+#preparing datasets
+spotify <- read_csv("spotify.csv")
+billboard <- read_csv("billboardHot100_1999-2019.csv")
+#spotify
+spotify<-spotify%>% filter(language=='en') #filtering for language
+spotify<-spotify%>% filter(year(as.Date(track_album_release_date))>1998) #filtering dates
+spotify<-spotify%>% filter(year(as.Date(track_album_release_date))<2020) #filtering dates
+spotify<-spotify %>% distinct(track_name, track_artist, .keep_all = TRUE) #removing duplicates
+spotify<-spotify %>% distinct(lyrics, .keep_all = TRUE) #removing duplicates
+spotify<- subset(spotify, select = c(track_name, track_artist,lyrics,
+                                     track_popularity, track_album_release_date,
+                                     playlist_genre,energy,valence)) #removing unnecessary columns
+
+#---putting labels
+ggplot(data=spotify, aes(x=valence,y=energy))+geom_point(alpha = 1/10)+theme_minimal()+
+  geom_hline(yintercept=0.5,linetype="dashed")+geom_vline(xintercept=0.5,linetype="dashed")
+quantile(spotify$energy, probs = c(0.25,0.75))
+quantile(spotify$valence, probs = c(0.25,0.75)) 
+spotify<-spotify %>%
+  mutate(label = case_when(
+    (energy>0.837 & valence>0.649) ~ "Happy",
+    (energy>0.837 & valence<0.312) ~ "Angry",
+    (energy<0.5 & valence>0.649) ~ "Relaxed", #1st quartile is 0.572, so we will use 0.5
+    (energy<0.5 & valence<0.312) ~ "Sad"    #1st quartile is 0.572, so we will use 0.5
+  ))
+
+
+ggplot(data = spotify, aes(x = valence, y = energy, color = label)) +
+  geom_point(alpha = 0.5) +
+  theme_minimal() +
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 0.5, linetype = "dashed") +
+  labs(x = "Valence", y = "Energy") +
+  scale_color_manual(values = c("Happy" = "green", "Angry" = "red", "Relaxed" = "blue", "Sad" = "purple"))
+```
+
+::: {style="text-align: justify;"}
+ After applying mood labels there are 757 happy, 526 angry and 706 sad songs. Unfortunately, as there are not enough relaxed songs, relaxed mood will not be included in the model. This dataset will then be used for training, evaluating and choosing the best mood classification model.
+
+```{r}
+#---counting how many songs in each mood category
+spotify<-na.omit(spotify)
+spotify %>% count(label)
+```
+
+```{r}
+spotify<-spotify%>%filter(label!="Relaxed")
+```
+
+ The second dataset is from Billboard Hot 100 and it holds data of around 5 thousand songs that have charted from 1999 to 2019. Apart from lyrics, it also consists of songs' peak positions and the number of weeks they have been on the chart. We have selected only the songs which peaked at number 1, limiting our data to only 245 songs. On this dataset, after mood labels are applied to songs by the best mood classification model, analysis will be performed to determine which type of song is the most popular.
+:::
+
+```{r}
+#billboard
+
+#---removing unnecessary data
+billboard<- subset(billboard, select = c(Artists, Name,Peak.position, Weeks.on.chart,Week,Lyrics))
+billboard <- na.omit(billboard)
+billboard<-billboard%>%filter(Peak.position==1)
+billboard<-billboard %>% distinct(Name, .keep_all = TRUE)
+```
+
+::: {style="text-align: justify;"}
+ Additional data preparation on both datasets included text preprocessing: removing special characters, changing contraction to their multi-word forms, replacing informal writing with known semantic replacements and reducing whitespace. After that, stop words were removed and Porter Stemming Algorithm was applied to reduce words to their root form. Figure 3 shows the most common terms used in each mood category. A lot of words are common across all categories, for example: "can", "will", "know", "love", "now", "just" or "like". However, we can see that words like "never" and "want' are present more frequently in songs with angry mood. Also"feel" is more common in categories associated with negative moods and "baby" with happy mood.
+
+ Additionally, most common words in each category are very interesting, namely: "can" and "will" for Angry, "like" and "love" for Happy and "love" and "know" for Sad. Nevertheless, the words which were common across all of the categories were removed, treating them as extra stop words.
+:::
+
+```{r}
+spotify$lyrics <- str_replace_all(as.character(spotify$lyrics), '[^a-zA-Z \']',' ') #replacing all special characters
+spotify <- spotify %>% mutate(lyrics_clean = lyrics %>%
+                                str_to_lower() %>% #changing all to lower case 
+                                replace_contraction() %>%#replacing contractions 
+                                replace_word_elongation() %>% #replacing elongations 
+                                str_squish() %>% str_trim()) #removing whitespace
+
+
+#checking for most frequent words in each category
+#---Happy
+happy<-spotify %>% filter(label=="Happy")
+corp <- VCorpus(VectorSource(happy$lyrics_clean)) #word corpus
+tdm <- corp %>% 
+  tm_map(removeWords, stopwords("en")) %>% #removing stopwords
+  tm_map(stemDocument) %>% #stemming
+  TermDocumentMatrix() #matix
+
+m <- as.matrix(tdm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d_happy <- data.frame(word = names(v),freq=v)
+
+#---Sad
+sad<-spotify %>% filter(label=="Sad")
+corp <- VCorpus(VectorSource(sad$lyrics_clean)) #word corpus
+tdm <- corp %>% 
+  tm_map(removeWords, stopwords("en")) %>% #removing stopwords
+  tm_map(stemDocument) %>% #stemming
+  TermDocumentMatrix() #matix
+
+m <- as.matrix(tdm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d_sad <- data.frame(word = names(v),freq=v)
+
+#---Angry
+angry<-spotify %>% filter(label=="Angry")
+corp <- VCorpus(VectorSource(angry$lyrics_clean)) #word corpus
+tdm <- corp %>% 
+  tm_map(removeWords, stopwords("en")) %>% #removing stopwords
+  tm_map(stemDocument) %>% #stemming
+  TermDocumentMatrix() #matix
+
+m <- as.matrix(tdm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d_angry <- data.frame(word = names(v),freq=v)
+
+stop<-c('love','will','like','can','know','now','just')
+
+common_terms <- cbind(d_happy$word, d_happy$freq, d_sad$word, d_sad$freq, d_angry$word, d_angry$freq)
+colnames(common_terms) <- c("Happy", "count", "Sad", "count", "Angry", "count")
+```
+
+```{r}
+knitr::kable(head(common_terms), caption = 'The top 10 of the most common terms in each mood category', align = "c")
+```
+
+# CHAPTER III. MODELING
+
+::: {style="text-align: justify;"}
+ After text preprocessing, lyrics data was converted into a Document Term Matrix (DTM), where words were tokenized, changed into n-grams of one to three words and scores were assigned using Term Frequency - Inverse Document (TF-IDF) technique. This gives terms a higher score if they appear frequently in a particular document, but rarely across the entire corpus and it helps to balance off terms' frequency and importance. In this case, some of the terms with the highest TF-IDF score were: "oh oh", "without", "let", "need" or "night". However, before applying any machine learning models, an additional feature selection was need, as there were more than 330 thousand terms in the matrix.
+:::
+
+```{r}
+#developing TF-IDF (Term Frequency - Inverse Document) Martix
+NLP_tokenizer <- function(x) {
+  unlist(lapply(ngrams(words(x), 1:3), paste, collapse = "_"), use.names = FALSE)
+} #function used to create dtm
+control_list_ngram = list(tokenize = NLP_tokenizer,
+                          weighting = weightTfIdf) #function used to create dtm
+corp <- VCorpus(VectorSource(spotify$lyrics_clean)) #word corpus
+
+big_tfidf <- corp %>%
+  tm_map(removeWords, c(stopwords("en"),stop)) %>% #removing stopwords
+  tm_map(stemDocument) %>% #stemming
+  DocumentTermMatrix(control_list_ngram) #adding TF-IDF weights and tokenizing
+
+m <- as.matrix(big_tfidf)
+v <- sort(colSums(m),decreasing=TRUE)
+d <- data.frame(tf=v)
+
+```
+
+::: {style="text-align: justify;"}
+ The first feature selection was filtering our DTM and keeping only terms, which had TF-IDF scores in the top 0.05 percentile. This limits our testing dataset to about 16 595 variables.
+:::
+
+```{r}
+#feature selection --- filtering by tf-idf score
+tfidf<-filter_words(big_tfidf, 
+                    min=quantile(d$tf, 0.95))
+
+
+dat.clean <- as.data.frame(as.matrix(tfidf), stringsAsFactors = F)
+```
+
+::: {style="text-align: justify;"}
+ Analogical preprocessing is needed for the Billboard data.
+:::
+
+```{r}
+billboard$Lyrics <- str_replace_all(as.character(billboard$Lyrics), '[^a-zA-Z \']',' ') #replacing all special characters
+billboard <- billboard %>% mutate(lyrics_clean = Lyrics %>%
+                                str_to_lower() %>% 
+                                replace_contraction() %>%
+                                replace_word_elongation() %>%
+                                str_squish() %>% str_trim())
+corp_b <- VCorpus(VectorSource(billboard$lyrics_clean))
+big_tfidf_b <- corp_b %>%
+  tm_map(removeWords, c(stopwords("en"),stop)) %>% 
+  tm_map(stemDocument) %>% 
+  DocumentTermMatrix(control_list_ngram) 
+m_b <- as.matrix(big_tfidf_b)
+v_b <- sort(colSums(m),decreasing=TRUE)
+d_b <- data.frame(tf=v)
+tfidf_b<-filter_words(big_tfidf_b,
+                    min=quantile(d_b$tf, 0.95))
+dat.clean_b <- as.data.frame(as.matrix(tfidf_b), stringsAsFactors = F)
+colnames(dat.clean_b) <- make.names(colnames(dat.clean_b))
+typeof(dat.clean_b)
+dat.clean_b <- as.data.frame(dat.clean_b)
+```
+
+::: {style="text-align: justify;"}
+ In order for the trained model to correctly predict the mood, variables generated from billboard dataset need to correspond to those from spotify data. Hence, the last step before modeling part was a unification of column names in both daatsets (from billborad and spotify) in order to generate predictions.
+:::
+
+```{r}
+common_cols <- intersect(colnames(dat.clean), colnames(dat.clean_b))
+dat.clean_subset <- dat.clean[, common_cols]
+dat.clean_b_subset <- dat.clean_b[, common_cols]
+```
+
+```{r}
+#---adding label
+new.dat <- cbind(dat.clean_subset, data.frame(labelY = as.factor(spotify$label)))
+new.dat$labelY
+#---adding colnames
+colnames(new.dat) <- make.names(colnames(new.dat))
+typeof(new.dat)
+new.dat <- as.data.frame(new.dat)
+typeof(new.dat)
+```
+
+::: {style="text-align: justify;"}
+ Later, several traditional machine learning algorithms such as Naive Bayes, Random forest, SVM and KNN were used for text classification with varying results. The full workflow of this study can be seen on Figure 2.
+:::
+
+Fig.2. The overall process of the proposed research
+
+```{r, echo=FALSE}
+im_2 = load.image("process.jpg")
+plot(im_2)
+```
+
+*Source*: Own study
+
+::: {style="text-align: justify;"}
+ Since the dataset is imbalanced, the stratify approach was used, in spilling the data into training and testing samples (70%/30%).
+:::
+
+```{r}
+#---spliting into training and testing dataset
+splitter <- initial_split(new.dat, prop = 0.70, strata = "labelY")
+train <- training(splitter)
+test <- testing(splitter)
+```
+
+::: {style="text-align: justify;"}
+ Several machine learning models were trained: SVM, KNN, Naive Bayers and Random Forest. The assessment of the accuracy of the model, was based on the Balanced Accuracy metric.
+:::
+
+#### SVM with linear kernel
+
+```{r, warning=FALSE}
+set.seed(123)
+cv_control <- trainControl(method = "repeatedcv", number = 10,
+                           classProbs = TRUE, repeats = 5, search = 'grid')
+tune_grid <- expand.grid(sigma = c(0.1, 0.5, 1, 2, 5),
+                         C = c(0.1, 1, 10))
+
+SVM_model <- train(labelY ~ ., data = train, method = "svmLinear",
+                   trControl = cv_control,
+                   metric = "Accuracy", 
+                   tune_grid = tune_grid,
+                   tuneLength = 10, scale = F)
+print(SVM_model)
+
+SVM_model_pred_train <- predict(SVM_model, newdata = train)
+a_t <- confusionMatrix(data = SVM_model_pred_train, reference = train$labelY)
+
+SVM_model_pred <- predict(SVM_model, newdata = test)
+a<-confusionMatrix(data = SVM_model_pred, reference = test$labelY)
+
+a_t
+a
+```
+
+::: {style="text-align: justify;"}
+ Out of all trained SVM models (with different kernel functions: linear, polynomial, radial, sigmoid), model with linear kernel yielded the best results. Nevertheless, the accuracy on the training set it around 60%, which is not a satisfactory outcoma e.
+:::
+
+#### Naive Bayers
+
+```{r}
+NB_model <- naiveBayes(labelY~., data=train, trControl = cv_control,
+                       metric = "Accuracy", tune_grid = tune_grid, scale=T)
+
+NB_model_pred_train<-predict(NB_model, train)
+
+b_t<-confusionMatrix(data = NB_model_pred_train, train$labelY)
+
+NB_model_pred_test<-predict(NB_model, test)
+
+b<-confusionMatrix(data = NB_model_pred_test, test$labelY)
+
+b_t
+b
+```
+
+#### KNN
+
+```{r}
+KNN_model <- train(labelY ~ ., data = train, method = "knn",
+                   trControl = cv_control,
+                   metric = "Accuracy")
+
+print(KNN_model)
+KNN_model_pred_train <-predict(KNN_model, train)
+c_t <-confusionMatrix(data = KNN_model_pred_train, train$labelY)
+
+KNN_model_pred <-predict(KNN_model, test)
+c <-confusionMatrix(data = KNN_model_pred, test$labelY)
+
+c_t
+c
+```
+
+KNN and Naive Bayers gave unsatisfactory results, the last trained model is Random Forest.
+
+#### Random Forrest
+
+```{r}
+cv_control_rf <- trainControl(method = "repeatedcv",
+                           classProbs = TRUE, search = 'grid')
+
+RF_model <- train(labelY~., data = train, method = "rf",trControl = cv_control_rf,metric = "Accuracy")
+
+RF_model_pred_train <- predict(RF_model, train)
+d_t <- confusionMatrix(data = RF_model_pred_train, train$labelY)
+
+RF_model_pred <- predict(RF_model, test)
+d <- confusionMatrix(data = RF_model_pred, test$labelY)
+
+d_t
+d
+```
+
+```{r}
+svm_balanced_accuracy <- a$byClass[,"Balanced Accuracy"]
+nb_balanced_accuracy <- b$byClass[,"Balanced Accuracy"]
+knn_balanced_accuracy <- c$byClass[,"Balanced Accuracy"]
+rf_balanced_accuracy <- d$byClass[,"Balanced Accuracy"]
+
+results_summary <-cbind(svm_balanced_accuracy, nb_balanced_accuracy, knn_balanced_accuracy, rf_balanced_accuracy)
+results_summary <-t(results_summary)
+results_summary
+```
+
+The best outcomes on the training set were obtained with the Random Forest. Balanced accuracy for each category is close to 70%. Although the model sufferers from overfitting, its relatively high accuracy allowed for further predictions.
+
+# CHAPTER III. RESULTS
+
+```{r}
+billboard_pred <- predict(RF_model, newdata = dat.clean_b_subset)
+billboard$Predicted_Mood <- billboard_pred
+head(billboard)
+```
+
+::: {style="text-align: justify;"}
+ It turns out, that happy songs are most likely to have high notes. They are an unbeaten leader. Sad and angry songs are much less common.
+:::
+
+```{r}
+summary(billboard$Predicted_Mood) 
+billboard$Predicted_Mood <- as.factor(billboard$Predicted_Mood)
+```
+
+# CONCLUSION
+
+::: {style="text-align: justify;"}
+ This project aimed at examining which type of songs we listen to (angry, sad, or happy). Initially, the songs were classified based on a combination of valence and energy ratios, which were used to assign moods to the lyrical content. Following data prepossessing, the analysis focused on most frequently appearing words in each category. Then, several machine learning models were trained to asses which 3-grams are most likely to appear with a particular mood. SVM, KNN, Naive Bayers, and Random Forest were trained, and the last one yielded the most promising results. Based on its predictions, we find, that the most popular songs among music lovers are happy songs, while sad and angry songs are notably less common. Although some improvements could have been made to improve the balanced accuracy score, the obtained outcomes are consistent with expectations and encourage to examine more thoroughly our music preferences.
+:::
+
+### BIBLIOGRAPHY
+
+::: {style="text-align: justify;"}
+-   Abdillah, J., Asror, I., Wibowo, Y. (2020). Emotion Classification of Song Lyrics using Bidirectional LSTM Method with GloVe Word Representation Weighting. Journal RESTI 4. 723-729.
+
+-   Akella, R., Moh, T. (2019). Mood Classification with Lyrics and ConvNets. Proceedings - 18th IEEE International Conference on Machine Learning and Applications. 511-514.
+
+-   Napier, K., Shamir, L. (2018). Quantitative Sentiment Analysis of Lyrics in Popular Music. Journal of Popular Music Studies, 30(4), 161--176.
+
+-   Russell J. (1980) A circumplex model of affect, Journal ofPersonality and Social Psychology, vol. 39, 1161--1178.
+
+-   Schellenberg, E., von Scheve, Christian. (2012). Emotional Cues in American Popular Music: Five Decades of the Top 40. Psychology of Aesthetics Creativity and the Arts. 6. 196-203.
+
+-   Siriket K., Sa-ing V., Khonthapagdee S. (2021) Mood classification from Song Lyric using Machine Learning. 9th International Electrical Engineering Congress. 476-478.
+:::
