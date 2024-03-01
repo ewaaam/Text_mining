@@ -1,29 +1,11 @@
 ---
 title: "Understanding ECB communication through Topic Modelling and Sentiment Analysis"
 output: html_document
-date: "2024-01-28"
+date: "2024-03-01"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
-
-```{r, warning=FALSE, echo=FALSE}
-library(tidyverse)
-library(tidytext)
-library(topicmodels)
-library(tm)
-library(SnowballC)
-library(rminer)
-library(dplyr)
-library(ggplot2)
-library(stringr)
-library(textclean)
-library(tm)
-library(SnowballC)
-library(textmineR)
-library(textcat)
-library(quanteda)
 ```
 
 # Chapter I. Introduction
@@ -33,13 +15,54 @@ library(quanteda)
 
  Szyszko et al. (2022) examined the effect on communication of the central banks in selected European countries employing various methodologies, including the LDA (Latent Dirichlet allocation) technique. They found that the tone of communication of the central bank affects consumer inflation expectations. The LDA algorithm has been used also by Priola et al. (2022) to uncover the topics of the speeches delivered by selected central banks between 2000 and 2021 and then a topic-specific sentiment index was constructed. It turned out that monetary policy, macroprudential policy, payments, and settlements were the most prominent contributors. Since the LDA algorithm is widely used in analyzing the communication of the central banks (as observed in works by Hansen and McMahon (2016), Tumala and Omotosho (2020)), it is be the main tool used in this research.
 
- The structure of the project is as follows. Chapter I describes the dataset and data-cleaning process. Chapter II presents Topic Modeling and Sentiment Analysis. Firstly, the main topics covered by the ECB are revealed. Following that, the database is divided into four periods: pre-crisis (1997-2006), crisis (2008-2009), post-crisis (2009-2019) and covid-19 (2020-2023). It allows for a more detailed analysis of the topics covered in each period. Finally, sentiment analysis is used to detect how the emotional tone has been changing through the mentioned periods. Chapter III summarizes the results and the final part concludes.
+ Other approach would be sentiment analysis, namely polarity classification. Through this approach, we would obtain relative sentiment score that would indicate when the ECB board members were the most positive and the most negative in their speeches. Our study, in this part, is similar to (Warin & Sanger, 2020) and (Anastasiou & Katsafados, 2023), who both used sentiment analysis in researching on ECB members utterances. We will identify words that influence relative sentiment the most and plot sentiment across time. Additionally, we would compare sucha a measure with Polish inflation expectations to suggest a path for future research in the field.
+
+ The structure of the project is as follows. Chapter I describes the dataset and data-cleaning process. Chapter II presents Topic Modeling. Firstly, the main topics covered by the ECB are revealed. Following that, the database is divided into four periods: pre-crisis (1997-2006), crisis (2008-2009), post-crisis (2009-2019) and covid-19 (2020-2023). It allows for a more detailed analysis of the topics covered in each period. Finally, sentiment analysis is used to detect how the emotional tone has been changing through the mentioned periods. Chapter III includes Sentiment Analysis. For every speech in the dataset positive and negative score is calculated allowing to obtain relative sentiment measure. Then, the most significant words for sentiment are graphically presente. Finally, Chapter IV summarizes the results and concludes.
 :::
+
+## Libraries and packages
+We require various packages for our project to run smoothly and effectively.
+```{r biblioteki,  warning=FALSE, echo=FALSE}
+library(tidyverse) # less messy code + lengthening/widening data + much more
+library(tidytext) # for sentiment lexicons, tokenization and more
+library(topicmodels) # for topic modelling (LDA)
+library(tm) # for general text mining purposes
+library(SnowballC) # for stemming
+library(rminer) # for data mining classifications
+library(dplyr) # handling the data easier
+library(ggplot2) # plotting
+library(ggthemes) # for nicer themes
+library(stringr) # strings operations
+library(textclean) # to clean and normalize text
+library(textmineR) # for general text minig
+library(textcat) # for language identification
+library(quanteda) # for quantitative text analysis
+```
+
+```{r biblioteki2,  eval=FALSE}
+library(tidyverse) # less messy code + lengthening/widening data + much more
+library(tidytext) # for sentiment lexicons, tokenization and more
+library(topicmodels) # for topic modelling (LDA)
+library(tm) # for general text mining purposes
+library(SnowballC) # for stemming
+library(rminer) # for data mining classifications
+library(dplyr) # handling the data easier
+library(ggplot2) # plotting
+library(ggthemes) # for nicer themes
+library(stringr) # strings operations
+library(textclean) # to clean and normalize text
+library(textmineR) # for general text minig
+library(textcat) # for language identification
+library(quanteda) # for quantitative text analysis
+```
+
+
 
 # Chapter II. Dataset
 
 ::: {style="text-align: justify;"}
-The initial dataset consists of 1406 speeches of ECB board members delivered from 1997-02-07 to 2023-12-20.
+We obtained the data about ECB board members from the publicly available source: https://www.ecb.europa.eu/press/key/html/downloads.en.html. 
+The initial dataset consists of 1421 speeches of ECB board members delivered from 1997-02-07 to 2024-03-01. However, we would trim the data to the end of 2023.
 :::
 
 ```{r}
@@ -48,20 +71,22 @@ speeches <- read.delim("all_ECB_speeches.csv", sep = "|")
 ```
 
 ::: {style="text-align: justify;"}
- Before topic modeling, some data preprocessing was needed. All rows with missing observations were removed, words were converted to lowercase, white spaces were removed and contractions and elongations were replaced. Since the title, subtitle, date, and place of the speech were also included in speeches content, this information was removed from each speech. Some texts were not in English, so the language of the speeches was firstly detected and then non-English speeches (Spanish, Catalan, French, and German) were removed. 1261 observations were left. Some stopwords were dropped (they appeared frequently in each topic).
+ Before topic modeling, some data preprocessing was needed. All rows with missing observations were removed, words were converted to lowercase, white spaces were removed and contractions and elongations were replaced. Since the title, subtitle, date, and place of the speech were also included in speeches content, this information was removed from each speech. Some texts were not in English, so the language of the speeches was firstly detected and then non-English speeches (Spanish, Catalan, French, and German) were removed. 1261 observations were left. Some stopwords were dropped (they appeared frequently in each topic and their inclusion in the analysis would be minsinformative).
 :::
 
-```{r}
+```{r speech processing}
 speeches$contents <- gsub("  SPEECH  ", "", speeches$contents) # removing SPEECH word
 speeches <- speeches %>%
-  filter(!is.na(contents) & contents != "") # removing empty rows 
+  filter(!is.na(contents) & contents != "") # removing empty rows
+
 
 for (i in 1:nrow(speeches)) {
   speeches$contents[i] <- gsub(speeches$title[i], "", speeches$contents[i])
 } # removing the title from the content of the speech 
 
+
 for (i in 1:nrow(speeches)) {
-  speeches$contents[i] <- gsub(speeches$subtitle[i], "", speeches$contents[i])
+  try(speeches$contents[i] <- gsub(speeches$subtitle[i], "", speeches$contents[i]))
 } # removing the subtitle from the content of the speech 
 
 speeches$contents <- gsub("\\b\\p{Lu}{1}[a-zA-Z\\s]+(?=,)", "", speeches$contents, perl = TRUE)# removing place of the speech
@@ -81,7 +106,7 @@ speeches_lang <- textcat(speeches$contents,p=textcat::TC_char_profiles,method="C
 speeches_lang <- as.data.frame(speeches_lang)
 speeches_combined <- cbind(speeches, speeches_lang)
 
-speeches <- speeches_combined[speeches_combined$speeches_lang == 'english', ]
+speeches <- speeches_combined[speeches_combined$speeches_lang == 'english', ] # removing speeches which are not in English
 
 speeches$contents <- sapply(speeches$contents, function(text) {
   tokens <- tokens(text)
@@ -93,9 +118,8 @@ speeches$contents <- sapply(speeches$contents, function(text) {
 })
 ```
 
-# Chapter III. Modeling
+# Chapter III. Topic Modeling
 
-### Topic Modeling
 
 ::: {style="text-align: justify;"}
  LDA is a generative probabilistic model, where each document is treated as a mixture of topics occurring in the corpus, and each word is ascribed to a particular topic with some probability. After multiple iterations, the words with the highest probability of appearing in a particular topic can be displayed (source: lecture notes).
@@ -168,7 +192,9 @@ Based on the generated top 10 words in each category, the topics emerging in the
 :::
 
 ::: {style="text-align: justify;"}
- For more detailed analysis, the database was divided into four periods: pre-crisis (259 speeches), crisis (205 speeches), post-crisis (568 speeches), and Covid-19 (227 speeches).
+ For more detailed analysis, the database was divided into four periods: pre-crisis (259 speeches), crisis (205 speeches), post-crisis (578 speeches), and Covid-19 (227 speeches).
+ Crisis period is set to roughly 1st January 2008 to the end of 2009. We are aware that severe financial difficulties in the US began prior to this date and that European Debt Crisis did not disappear on the New Year 2010. However, some decision to divide the period was necessary and 2007-2009 proxy is widely used in the literature.
+ Covid-19 period is believed to last from 17th March 2020, when every European country has had at least one deadly case of the disease. The end date of our analysis is the end of 2023. It is later than the end of the pandemic but the aftereffects on the economy are still visible, hence the date selection.
 :::
 
 ```{r}
@@ -176,8 +202,8 @@ speeches$date <- as.Date(speeches$date)
 
 pre_crisis_period <- c(as.Date("1997-01-01"), as.Date("2007-12-31"))
 crisis_period <- c(as.Date("2008-01-01"), as.Date("2009-12-31"))
-post_crisis_period <- c(as.Date("2010-01-01"), as.Date("2019-12-31"))
-covid_period <- c(as.Date("2020-01-01"), as.Date("2023-12-31"))
+post_crisis_period <- c(as.Date("2010-01-01"), as.Date("2020-03-16"))
+covid_period <- c(as.Date("2020-03-17"), as.Date("2023-12-31"))
 
 # dividing speeches by periods
 pre_crisis_speeches_df <- filter(speeches, date >= pre_crisis_period[1] & date <= pre_crisis_period[2])
@@ -254,25 +280,167 @@ Topics during (and after) COVID-19 pandemic:
 4)  Pandemic
 :::
 
-### Summary
+
+# Chapter IV. Sentiment Analysis
+::: {style="text-align: justify;"}
+ We create a new df with a sentiment score calculated by the words used in a speech. The table consist of positive score, negative score, sentiment value and relative sentiment, where -100 means the most negative sentiment and 100 the most positive.
+:::
+```{r}
+speeches_sentiment<- data.frame(index = 0,
+                     date = as.Date("2024-03-01"),
+                     speaker = "speaker",
+                     negative = 0,
+                     positive = 0,
+                     sentiment = 0,
+                     relative.sentiment = 0)
+for (i in 1:nrow(speeches)){
+  start <- speeches[i,"contents"]
+  dat <- map(start, function(x) {
+  tibble(text = unlist(str_split(x, pattern = "\\s"))) %>%
+    rowid_to_column(var = "number")
+    })
+  dat <- as.data.frame(dat[[1]])
+  colnames(dat)[2] <- "word" # change of column's name to easily join with dictionaries
+  
+  dat_bing <- dat %>%
+    inner_join(get_sentiments("bing"), by = join_by(word))
+  
+  table<- data.frame(index = i,
+                     date = speeches[i, 1],
+                     speaker = speeches[i, 2],
+                     negative = count(dat_bing, sentiment)[1,2],
+                     positive = count(dat_bing, sentiment)[2,2],
+                     sentiment = count(dat_bing, sentiment)[2,2] - count(dat_bing, sentiment)[1,2],
+                     relative.sentiment = (count(dat_bing, sentiment)[2,2] - count(dat_bing, sentiment)[1,2]) / (count(dat_bing, sentiment)[2,2] + count(dat_bing, sentiment)[1,2])*100)
+  speeches_sentiment <- rbind(speeches_sentiment, table)
+  }
+
+speeches_sentiment <- speeches_sentiment[-1,] %>% 
+  drop_na() 
+rownames(speeches_sentiment) <- NULL
+
+head(speeches_sentiment, 15)
+```
 
 ::: {style="text-align: justify;"}
- The analysis highlighted the ECB's varying emphasis on different topics across different periods. Before the crisis, key issues were related to price stability, exchange rates, and integration of the banking system. The crisis has triggered the intensification of speeches relating to the regulatory framework, liquidity, and credits. After that, the banking sector gained much more attention and the topic of the financial crisis was still prevalent. COVID-19 has significantly changed the covered subjects: digital payments, climate change, pandemic, and increasing energy prices.
+ Then, we will plot relative sentiment using lm function.
 :::
+```{r plot - lm}
+ggplot(speeches_sentiment, aes(x = date, y = relative.sentiment)) +
+  geom_point(color = "darkgreen", size= 1.5) +
+  geom_vline(aes(xintercept=as.Date("2008-01-01"),
+                 color="2008-01-01"), linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=as.Date("2010-01-01"),
+                 color="2010-01-01"), linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=as.Date("2020-03-17"),
+                 color="2020-03-17"), linetype="dashed", size=1)+
+  scale_color_manual(name = "Cut-off dates:", 
+                     values = c("2008-01-01" = "red",
+                                "2010-01-01" = "orange",
+                                "2020-03-17" = "darkblue"))+
+  labs(title = 'OLS regression on relative sentiment',
+       x = 'Date' , 
+       y = 'Relative sentiment')  + 
+    geom_smooth(method='lm', formula= y~x, fill="lightgreen")+
+  ggthemes::theme_gdocs()
+```
 
-### Sentiment Analysis
+::: {style="text-align: justify;"}
+ It is clear that over time the trend is negative. Now we will use loess function and add Polish inflation expectations for the reference (calculated by T. Mętrak in his BA thesis).
+:::
+```{r plot - loess}
+exp <- read.csv("EXP_Poland_01_03_2024.csv")
+exp$Expectations.time <- lubridate::ym(exp$Expectations.time)
 
-# Chapter IV. Results
+ggplot(speeches_sentiment, aes(x = date, y = relative.sentiment)) +
+  geom_point(color = "darkgreen", size= 1.5) +
+  geom_vline(aes(xintercept=as.Date("2008-01-01"),
+                 color="2008-01-01"), linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=as.Date("2010-01-01"),
+                 color="2010-01-01"), linetype="dashed", size=1)+
+  geom_vline(aes(xintercept=as.Date("2020-03-17"),
+                 color="2020-03-17"), linetype="dashed", size=1)+
+  scale_color_manual(name = "Cut-off dates:", 
+                     values = c("2008-01-01" = "red",
+                                "2010-01-01" = "orange",
+                                "2020-03-17" = "darkblue"))+
+  labs(title = 'Loess regression on relative sentiment',
+       x = 'Date' , 
+       y = 'Relative sentiment')  + 
+    geom_smooth(method='loess', formula= y~x, fill="lightgreen")+
+    geom_line(exp, mapping=aes(x=Expectations.time, y=expect),
+              size=1.5, color="yellow")+
+  ggthemes::theme_gdocs()
+```
+::: {style="text-align: justify;"}
+ From the plot it is visible that around 2011-2012 there was time of stable sentiment in ECB board members utterances. Polish inflation expectations does not seem to align or correlate in any way with lasso-estimated relative sentiment.
 
+ Now we will check what words contribute the most to the positive and negative score.
+:::
+```{r words contribution}
+bing_word_counts <- data.frame(word = "example",
+                               sentiment = "example")
+
+for (i in 1:nrow(speeches)){
+  start <- speeches[i,"contents"]
+  dat <- map(start, function(x) {
+  tibble(text = unlist(str_split(x, pattern = "\\s"))) %>%
+    rowid_to_column(var = "number")
+    })
+  dat <- as.data.frame(dat[[1]])
+  colnames(dat)[2] <- "word" # change of column's name to easily join with dictionaries
+  
+  dat_bing <- dat %>%
+    inner_join(get_sentiments("bing"), by = join_by(word))
+  
+  bing_word_counts <- rbind(bing_word_counts, dat_bing[,2:3])
+}
+
+bing_word_counts <- bing_word_counts[-1,] %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(y = "Contribution to sentiment",
+       x = NULL) +
+  coord_flip()+
+  theme_gdocs()
+```
+
+::: {style="text-align: justify;"}
+ Here we will show what were the most popular positive and negative words contributing to sentiment scores.
+:::
 ```{r}
+library(wordcloud)
+library(reshape2)
+
+bing_word_counts %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("red", "green"),
+                   max.words = 100)
 
 ```
 
-# Conclusions
+# Summary and conclusions
+
+::: {style="text-align: justify;"}
+ The topic modelling analysis highlighted the ECB's varying emphasis on different topics across different periods. Before the financial crisis, key issues were related to price stability, exchange rates, and integration of the banking system. The crisis has triggered the intensification of speeches relating to the regulatory framework, liquidity, and credits. After that, the banking sector gained much more attention and the topic of the financial crisis was still prevalent. COVID-19 has significantly changed the covered subjects: digital payments, climate change, pandemic, and increasing energy prices.
+ Sentiment analysis showed that in the long-term ECB board members speeches were more and more negative. The only exception were period around 2011-2012, when the aftereffects of the financial crisis and the European Debt Crises seemed to diminish. For Poland we did not detect any correlation between inflation and relative sentiment. It is not a surprising outcome - Poland is not a member of Eurozone. To check whether any relationship occurs, one may use robus methods such as VAR analysis on countries such as Germany or France. In terms of the what contributes the most to the sentiment, there are words such as crisis, risk, stability, debt, recovery. Preferably, special dictionary for central banks would be beneficiary for further analysis.
+:::
+
 
 # BIBLIOGRAPHY
 
 ::: {style="text-align: justify;"}
+- Anastasiou, D., & Katsafados, A. (2023). Bank deposits and textual sentiment: When an European Central Bank president’s speech is not just a speech. The Manchester School, 91(1), 55–87. https://doi.org/10.1111/manc.12426
+
 -   Hansen, S., & McMahon, M. (2016). Shocking language: Understanding the macroeconomic effects of central bank communication. Journal of International Economics, 99, S114-S133.
 
 -   Priola, M. P., Molino, A., & Tizzanini, G. (2021). The informative value of central banks talks: a topic model application to sentiment analysis.
@@ -280,4 +448,7 @@ Topics during (and after) COVID-19 pandemic:
 -   Szyszko, M., Rutkowska, A., & Kliber, A. (2022). Do words affect expectations? The effect of central banks communication on consumer inflation expectations. The Quarterly Review of Economics and Finance, 86, 221-229.
 
 -   Tumala, M. M., & Omotosho, B. S. (2019). A text mining analysis of central bank monetary policy communication in Nigeria. CBN Journal of Applied Statistics, 10(2).
+
+- Warin, T., & Sanger, W. (2020). THE SPEECHES OF THE EUROPEAN CENTRAL BANK’s PRESIDENTS: AN NLP STUDY. Global Economy Journal, 20(02), 2050009. https://doi.org/10.1142/S2194565920500098
+
 :::
